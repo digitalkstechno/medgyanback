@@ -35,5 +35,5 @@ export const getAllContentService = async (queryParams) => {
 };
 
 export const getContentByIdService = async (id) => {
-  return Content.findById(id).populate("category");
+  return Content.findById(id);
 };
