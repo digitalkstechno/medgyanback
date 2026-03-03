@@ -19,6 +19,10 @@ const contentSchema = new mongoose.Schema(
     type: String,
     required: true
   },
+  contentId: {
+    type: String,
+    required: true
+  },
 
   thumbnail: String,
 
