@@ -27,6 +27,7 @@ router.get("/:id", GetUserControllerByid);
 
 // Admin-protected user updates
 router.put("/changepassword/:id", protect, changeMyPasswordController);
+router.put("/:id", protect, updateUserController);
 
 // Profile update with QR upload (multiple images allowed)
 router.put(
