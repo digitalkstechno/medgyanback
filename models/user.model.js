@@ -61,20 +61,21 @@ const userSchema = new mongoose.Schema(
       },
       subscription_plan: {
         type: String,
-        // enum: ["TRIAL", "BASIC", "PRO", "PREMIUM"],  
-        enum: ["TRIAL" ,"PREMIUM"],  
+        // enum: ["TRIAL", "BASIC", "PRO", "PREMIUM"],
+        enum: ["TRIAL", "PREMIUM"],
         default: "TRIAL",
       },
       startDate: {
         type: Date,
         default: Date.now,
       },
-      expiresAt: Date,          // admin sets / extends
+      expiresAt: Date, // admin sets / extends
       expiryNotified: {
         type: Boolean,
-        default: false,         // you can flip this from cron/admin when you notify
+        default: false, // you can flip this from cron/admin when you notify
       },
     },
+    Qrthumbnail: [String],
 
     // ✅ Full audit log – admin actions only
     subscriptionLog: [
@@ -125,7 +126,13 @@ const userSchema = new mongoose.Schema(
         },
         action: {
           type: String,
-          enum: ["CREATED", "EXTENDED", "UPGRADED", "RENEWED", "ADMIN_APPROVED"],
+          enum: [
+            "CREATED",
+            "EXTENDED",
+            "UPGRADED",
+            "RENEWED",
+            "ADMIN_APPROVED",
+          ],
           required: true,
         },
         timestamp: {
@@ -155,7 +162,7 @@ const userSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-  }
+  },
 );
 
 // Indexes
@@ -174,7 +181,7 @@ userSchema.virtual("daysRemaining").get(function () {
   const now = new Date();
   const expires = new Date(this.subscription.expiresAt);
   const diff = Math.ceil(
-    (expires.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
+    (expires.getTime() - now.getTime()) / (1000 * 60 * 60 * 24),
   );
   return diff < 0 ? 0 : diff;
 });
@@ -185,7 +192,9 @@ userSchema.methods.addSubscriptionLog = async function (logData) {
   this.subscriptionLog.unshift({
     adminId: logData.adminId,
     adminName: logData.adminName,
-    oldPlan: { ...(this.subscription?.toObject?.() || this.subscription || {}) },
+    oldPlan: {
+      ...(this.subscription?.toObject?.() || this.subscription || {}),
+    },
     newPlan: logData.newPlan,
     accessType: logData.accessType,
     notes: logData.notes,

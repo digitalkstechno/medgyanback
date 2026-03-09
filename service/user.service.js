@@ -247,6 +247,76 @@ export const updateUser = async (id, data, adminUser = null) => {
   }
 };
 
+// =============== UPDATE MY PROFILE (NO SUBSCRIPTION / NO SUPERADMIN GUARD) ===============
+export const updateMyProfile = async (id, req) => {
+  const session = await User.startSession();
+
+  try {
+    session.startTransaction();
+
+    const user = await User.findById(id).session(session);
+    console.log("updateMyProfile id:", id, "user:", user);
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    const allowedUpdates = ["name", "contact_no", "email"];
+
+    allowedUpdates.forEach((field) => {
+      if (Object.prototype.hasOwnProperty.call(req.body, field)) {
+        user[field] = req.body[field];
+      }
+    });
+
+    // ---------- QR IMAGE HANDLING (SUPER ADMIN ONLY) ----------
+
+    if (user.isSuperAdmin) {
+      // 1) Remove ALL QR images
+      if (req.body.removeQr === "true") {
+        user.Qrthumbnail = [];
+      }
+
+      // 2) Remove a PARTICULAR existing QR by filename
+      //    Frontend sends: formData.append('removeQrName', filenameToRemove)
+      if (req.body.removeQrName) {
+        const filenameToRemove = req.body.removeQrName;
+        user.Qrthumbnail = (user.Qrthumbnail || []).filter(
+          (name) => name !== filenameToRemove
+        );
+      }
+
+      // 3) Append NEW uploaded files (multiple)
+      //    Route uses upload.array("Qrthumbnail", 10)
+      if (Array.isArray(req.files) && req.files.length > 0) {
+        const newFileNames = req.files.map((f) => f.filename);
+        user.Qrthumbnail = [...(user.Qrthumbnail || []), ...newFileNames];
+      }
+
+      // NOTE: Do NOT use req.file here; with upload.array you always get req.files
+    }
+
+    const updatedUser = await user.save({
+      session,
+      validateBeforeSave: true,
+    });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    return updatedUser.toObject();
+  } catch (error) {
+    try {
+      await session.abortTransaction();
+    } catch {
+      // ignore
+    } finally {
+      session.endSession();
+    }
+    throw error;
+  }
+};
+
+
 // =============== Change Password ===============
 export const changePassword = async (userId, newPin) => {
   const user = await User.findById(userId);

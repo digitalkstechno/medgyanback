@@ -10,11 +10,13 @@ import {
   unblockUserController,
   bulkUpdateUsersController,
   extendSubscriptionController,
-  changeMyPasswordController
+  changeMyPasswordController,
+  updateMyProfileController,
 } from "../controller/user.controller.js";
 import { protect } from "../middleware/auth.middleware.js";
 import { queryOptions } from "../constant/globalpagination.js";
 import User from "../models/user.model.js";
+import { upload } from "../middleware/upload.middleware.js";
 
 const router = express.Router();
 
@@ -24,12 +26,21 @@ router.get("/", queryOptions(User), GetUserController);
 router.get("/:id", GetUserControllerByid);
 
 // Admin-protected user updates
-router.put("/:id", protect, updateUserController);
 router.put("/changepassword/:id", protect, changeMyPasswordController);
+
+// Profile update with QR upload (multiple images allowed)
+router.put(
+  "/profile/:id",
+  protect,
+  upload.array("Qrthumbnail", 10), // same field name as FormData.append('Qrthumbnail', file)
+  updateMyProfileController
+);
+
+// Bulk updates and subscription
 router.patch("/bulk", protect, bulkUpdateUsersController);
 router.post("/:id/extend", protect, extendSubscriptionController);
 
-// Other actions (you may also want protect here, depending on business rules)
+// Other actions
 router.delete("/:id", deleteUserController);
 router.put("/:id/delink-device", delinkUserDeviceController);
 router.put("/:id/block", blockUserController);

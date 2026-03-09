@@ -10,12 +10,21 @@ import {
   unblockUserService,
   bulkUpdateUsers,
   changePassword,
+  updateMyProfile
 } from "../service/user.service.js";
 
 // =============== CREATE ===============
 export const CreateUserController = async (req, res) => {
   try {
-    const user = await createUser(req.body);
+
+      const data = { ...req.body };
+     /* ================= thumbnail handle ================= */
+
+    if (req.file) {
+      // multer diskStorage already unique filename generate karega
+      data.Qrthumbnail = req.file.filename;
+    }
+    const user = await createUser(data);
     return res.status(201).json(user);
   } catch (error) {
     return res.status(500).json({ error: error.message });
@@ -122,6 +131,40 @@ export const updateUserController = async (req, res) => {
     });
   }
 };
+
+
+
+// =============== UPDATE MY PROFILE (SUPER ADMIN SELF ONLY) ===============
+export const updateMyProfileController = async (req, res) => {
+  try {
+    const authUser = req.user; // from protect
+
+    if (!authUser) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+
+    console.log("updateMyProfileController req.params.id:", req.params.id);
+    console.log("updateMyProfileController files:", req.files); // array with upload.array
+    console.log("updateMyProfileController body:", req.body);
+
+    const updatedUser = await updateMyProfile(req.params.id, req);
+
+    return res.status(200).json({
+      success: true,
+      message: "Profile updated successfully",
+      data: updatedUser,
+    });
+  } catch (error) {
+    console.error("Update my profile error:", error);
+    return res.status(500).json({
+      error: error.message || "Profile update failed",
+    });
+  }
+};
+
+
+
+
 
 // =============== Change Password ===============
 export const changeMyPasswordController = async (req, res) => {
