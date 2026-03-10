@@ -7,7 +7,6 @@ export const createContentService = async (data) => {
 export const getAllContentService = async (queryParams) => {
   let filter = {};
 
-  // 🔎 Search by title
   if (queryParams.title) {
     filter.title = {
       $regex: queryParams.title,
@@ -22,7 +21,8 @@ export const getAllContentService = async (queryParams) => {
     };
   }
 
-  let query = Content.find(filter);
+  let query = Content.find(filter)
+    .sort({ createdAt: -1 }); // latest first (or use updatedAt)
 
   if (queryParams.page) {
     const page = parseInt(queryParams.page);
@@ -34,6 +34,20 @@ export const getAllContentService = async (queryParams) => {
   return await query;
 };
 
+
 export const getContentByIdService = async (id) => {
   return Content.findById(id);
 };
+
+export const updateContentService = async (id, data) => {
+  return Content.findByIdAndUpdate(id, data, {
+    new: true,        // return updated doc
+    runValidators: true,
+  });
+};
+
+export const deleteContentService = async (id) => {
+  return Content.findByIdAndDelete(id);
+};
+
+

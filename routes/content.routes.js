@@ -3,8 +3,10 @@ const router = express.Router();
 
 import {
   createContentController,
+  deleteContentController,
   getAllContentController,
-  getContentByIdController
+  getContentByIdController,
+  updateContentController
 } from "../controller/content.controller.js";
 
 import { protect } from "../middleware/auth.middleware.js";
@@ -23,5 +25,12 @@ router.get(
   checkContentAccess,
   getContentByIdController
 );
+router.put(
+  "/:id",
+  protect,
+  upload.single("thumbnail"),
+  updateContentController
+);
+router.delete("/:id", protect, deleteContentController);
 
 export default router;

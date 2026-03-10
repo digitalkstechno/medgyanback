@@ -1,3 +1,5 @@
+// service/user.service.js
+import { sendOnboardEmail } from "../mail/OnboardMail.js";
 import User from "../models/user.model.js";
 import { hashPassword } from "../utils/password.js";
 import {
@@ -8,66 +10,45 @@ import {
 import bcrypt from "bcryptjs";
 
 // =============== CREATE ===============
+// export const createUser = async (data) => {
+//   data.pin = await hashPassword(data.pin);
+//   return User.create({ ...data });
+// };
+
 export const createUser = async (data) => {
+  // email already unique index hai, but nice UX ke liye manual check
+  const existingEmail = await User.findOne({ email: data.email });
+  if (existingEmail) {
+    throw new Error("Email is already registered");
+  }
+
+  if (data.deviceId) {
+    const existingDevice = await User.findOne({ deviceId: data.deviceId });
+    if (existingDevice) {
+      throw new Error("This device is already registered with another account");
+    }
+  }
+
   data.pin = await hashPassword(data.pin);
-  // creation must validate, so keep normal create
   return User.create({ ...data });
 };
 
+
 // =============== LIST WITH FILTERS ===============
-// export const getUser = async (queryParams) => {
-//   let filter = {};
-
-//   if (queryParams.userName) {
-//     filter.userName = {
-//       $regex: queryParams.userName,
-//       $options: "i",
-//     };
-//   }
-
-//   if (queryParams.name) {
-//     filter.name = {
-//       $regex: queryParams.name,
-//       $options: "i",
-//     };
-//   }
-
-//   if (queryParams.email) {
-//     filter.email = {
-//       $regex: queryParams.email,
-//       $options: "i",
-//     };
-//   }
-
-//   let query = User.find(filter);
-
-//   if (queryParams.page) {
-//     const page = parseInt(queryParams.page);
-//     const limit = parseInt(queryParams.limit) || 10;
-//     const skip = (page - 1) * limit;
-//     query = query.skip(skip).limit(limit);
-//   }
-
-//   return await query;
-// };
-
 export const getUser = async (queryParams) => {
-  // base filter: never return super admin
   const filter = { isSuperAdmin: false };
 
   if (queryParams.userName) {
     filter.userName = { $regex: queryParams.userName, $options: "i" };
   }
-
   if (queryParams.name) {
     filter.name = { $regex: queryParams.name, $options: "i" };
   }
-
   if (queryParams.email) {
     filter.email = { $regex: queryParams.email, $options: "i" };
   }
 
-  let query = User.find(filter);
+  let query = User.find(filter).sort({ createdAt: -1 });
 
   if (queryParams.page) {
     const page = parseInt(queryParams.page);
@@ -79,17 +60,21 @@ export const getUser = async (queryParams) => {
   return query;
 };
 
-
 // =============== GET BY ID ===============
 export const getUserbyId = async (id) => {
   return User.findById(id);
 };
 
+
 // =============== UPDATE (ADMIN-CONTROLLED SUBSCRIPTION) ===============
-export const updateUser = async (id, data, adminUser = null) => {
+export const updateUser = async (id, data, adminUser) => {
   const session = await User.startSession();
 
   try {
+    console.log("[UPDATE_USER] called for id:", id);
+    console.log("[UPDATE_USER] admin:", adminUser && adminUser._id);
+    console.log("[UPDATE_USER] body.subscription:", data.subscription);
+
     session.startTransaction();
 
     const user = await User.findById(id).session(session);
@@ -101,9 +86,8 @@ export const updateUser = async (id, data, adminUser = null) => {
       throw new Error("Cannot modify super admin");
     }
 
-    const oldSubscription = { ...(user.subscription || {}) };
+    const oldSubscription = Object.assign({}, user.subscription || {});
 
-    // ---------- BASIC FIELDS ----------
     const allowedUpdates = [
       "name",
       "contact_no",
@@ -121,7 +105,7 @@ export const updateUser = async (id, data, adminUser = null) => {
       }
     });
 
-    // ---------- SUBSCRIPTION GUARD LOGIC (ADMIN-ONLY CONTROL) ----------
+    // ---------- SUBSCRIPTION GUARD LOGIC ----------
     if (data.subscription) {
       const incoming = data.subscription;
       const current = user.subscription || {};
@@ -148,11 +132,11 @@ export const updateUser = async (id, data, adminUser = null) => {
         String(incoming.expiresAt || current.expiresAt || "") ===
           String(current.expiresAt || "");
 
+      console.log("[UPDATE_USER] hasActivePaid:", hasActivePaid);
+      console.log("[UPDATE_USER] samePlan:", samePlan);
+
       if (!hasActivePaid || !samePlan) {
-        user.subscription = {
-          ...current,
-          ...incoming,
-        };
+        user.subscription = Object.assign({}, current, incoming);
 
         if (!user.subscription.status) {
           user.subscription.status =
@@ -161,7 +145,7 @@ export const updateUser = async (id, data, adminUser = null) => {
               : "ACTIVE";
         }
 
-        // ---------- LOG ENTRY ----------
+        // ---------- LOG ENTRY + ONBOARD MAIL ----------
         if (adminUser && adminUser._id) {
           const adminNameSafe =
             adminUser.name || adminUser.userName || "System";
@@ -190,36 +174,93 @@ export const updateUser = async (id, data, adminUser = null) => {
             String(oldSubState.expiresAt || "") !==
               String(newSubState.expiresAt || "");
 
+          console.log("[UPDATE_USER] subscription changed:", changed);
+
           if (changed) {
+            const accessType =
+              data.subscriptionLog && data.subscriptionLog.accessType
+                ? data.subscriptionLog.accessType
+                : newPlan;
+
+            const notes =
+              data.subscriptionLog && data.subscriptionLog.notes
+                ? data.subscriptionLog.notes
+                : "";
+
+            const action =
+              data.subscriptionLog && data.subscriptionLog.action
+                ? data.subscriptionLog.action
+                : getSubscriptionActionType(oldSubscription, newPlan);
+
+            console.log(
+              "[UPDATE_USER] addSubscriptionLog for user:",
+              user._id,
+              "plan:",
+              newPlan,
+              "action:",
+              action
+            );
+
             await user.addSubscriptionLog({
               adminId: adminUser._id,
               adminName: adminNameSafe,
               newPlan: user.subscription,
-              accessType: data.subscriptionLog?.accessType || newPlan,
-              notes: data.subscriptionLog?.notes || "",
-              action:
-                data.subscriptionLog?.action ||
-                getSubscriptionActionType(oldSubscription, newPlan),
+              accessType,
+              notes,
+              action,
             });
+
+            // ✅ onboarding / plan-change email
+            try {
+              console.log(
+                "[UPDATE_USER] calling sendOnboardEmail for:",
+                user.email
+              );
+              await sendOnboardEmail({
+                to: user.email,
+                name: user.name || user.userName,
+                plan: user.subscription.subscription_plan,
+                startDate: user.subscription.startDate,
+                expiresAt: user.subscription.expiresAt,
+              });
+            } catch (e) {
+              console.error("Onboard email error:", e.message);
+            }
           }
         }
       }
     }
 
-    // ---------- OPTIONAL: manual log-only (no subscription change) ----------
-    if (!data.subscription && data.subscriptionLog && adminUser && adminUser._id) {
-      const adminNameSafe = adminUser.name || adminUser.userName || "System";
+    // ---------- OPTIONAL: manual log-only ----------
+    if (
+      !data.subscription &&
+      data.subscriptionLog &&
+      adminUser &&
+      adminUser._id
+    ) {
+      const adminNameSafe =
+        adminUser.name || adminUser.userName || "System";
 
-      await user.addSubscriptionLog({
-        adminId: adminUser._id,
-        adminName: adminNameSafe,
-        ...data.subscriptionLog,
-        newPlan: user.subscription,
-      });
+      console.log(
+        "[UPDATE_USER] manual log-only for user:",
+        user._id,
+        "action:",
+        data.subscriptionLog.action
+      );
+
+      await user.addSubscriptionLog(
+        Object.assign(
+          {
+            adminId: adminUser._id,
+            adminName: adminNameSafe,
+            newPlan: user.subscription,
+          },
+          data.subscriptionLog
+        )
+      );
     }
 
-    // Admin flow: keep full validation ON here
-    const updatedUser = await user.save({
+    const updatedUserDoc = await user.save({
       session,
       validateBeforeSave: true,
     });
@@ -227,19 +268,18 @@ export const updateUser = async (id, data, adminUser = null) => {
     await session.commitTransaction();
     session.endSession();
 
-    const status = getUserSubscriptionStatus(updatedUser);
-    const history = getSubscriptionHistorySummary(updatedUser);
+    const status = getUserSubscriptionStatus(updatedUserDoc);
+    const history = getSubscriptionHistorySummary(updatedUserDoc);
 
-    return {
-      ...updatedUser.toObject(),
+    return Object.assign({}, updatedUserDoc.toObject(), {
       subscriptionStatus: status,
       subscriptionHistory: history,
-    };
+    });
   } catch (error) {
+    console.error("[UPDATE_USER] error:", error);
     try {
       await session.abortTransaction();
     } catch {
-      // ignore
     } finally {
       session.endSession();
     }
@@ -247,7 +287,9 @@ export const updateUser = async (id, data, adminUser = null) => {
   }
 };
 
-// =============== UPDATE MY PROFILE (NO SUBSCRIPTION / NO SUPERADMIN GUARD) ===============
+
+
+// =============== UPDATE MY PROFILE (NO SUBSCRIPTION) ===============
 export const updateMyProfile = async (id, req) => {
   const session = await User.startSession();
 
@@ -255,7 +297,6 @@ export const updateMyProfile = async (id, req) => {
     session.startTransaction();
 
     const user = await User.findById(id).session(session);
-    console.log("updateMyProfile id:", id, "user:", user);
     if (!user) {
       throw new Error("User not found");
     }
@@ -268,16 +309,11 @@ export const updateMyProfile = async (id, req) => {
       }
     });
 
-    // ---------- QR IMAGE HANDLING (SUPER ADMIN ONLY) ----------
-
     if (user.isSuperAdmin) {
-      // 1) Remove ALL QR images
       if (req.body.removeQr === "true") {
         user.Qrthumbnail = [];
       }
 
-      // 2) Remove a PARTICULAR existing QR by filename
-      //    Frontend sends: formData.append('removeQrName', filenameToRemove)
       if (req.body.removeQrName) {
         const filenameToRemove = req.body.removeQrName;
         user.Qrthumbnail = (user.Qrthumbnail || []).filter(
@@ -285,14 +321,10 @@ export const updateMyProfile = async (id, req) => {
         );
       }
 
-      // 3) Append NEW uploaded files (multiple)
-      //    Route uses upload.array("Qrthumbnail", 10)
       if (Array.isArray(req.files) && req.files.length > 0) {
         const newFileNames = req.files.map((f) => f.filename);
         user.Qrthumbnail = [...(user.Qrthumbnail || []), ...newFileNames];
       }
-
-      // NOTE: Do NOT use req.file here; with upload.array you always get req.files
     }
 
     const updatedUser = await user.save({
@@ -316,11 +348,9 @@ export const updateMyProfile = async (id, req) => {
   }
 };
 
-
 // =============== Change Password ===============
 export const changePassword = async (userId, newPin) => {
   const user = await User.findById(userId);
-  console.log("🚀 ~ changePassword ~ user:", user);
   if (!user) {
     throw new Error("User not found");
   }
@@ -331,7 +361,6 @@ export const changePassword = async (userId, newPin) => {
   await user.save({ validateBeforeSave: false });
   return user;
 };
-
 
 // =============== BULK UPDATE (ADMIN) ===============
 export const bulkUpdateUsers = async (userIds, updateData, adminUser) => {
@@ -372,7 +401,6 @@ export const delinkUserDeviceService = async (userId) => {
   user.device = undefined;
   user.deviceId = undefined;
 
-  // NON‑SUBSCRIPTION FLOW → disable validation
   await user.save({ validateBeforeSave: false });
   return user;
 };
@@ -387,7 +415,6 @@ export const blockUserService = async (userId) => {
   user.isBlocked = true;
   user.blockedAt = new Date();
 
-  // NON‑SUBSCRIPTION FLOW → disable validation
   await user.save({ validateBeforeSave: false });
   return user;
 };
@@ -401,7 +428,6 @@ export const unblockUserService = async (userId) => {
   user.isBlocked = false;
   user.blockedAt = null;
 
-  // NON‑SUBSCRIPTION FLOW → disable validation
   await user.save({ validateBeforeSave: false });
   return user;
 };

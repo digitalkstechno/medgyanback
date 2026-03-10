@@ -1,3 +1,4 @@
+// controller/user.controller.js
 import User from "../models/user.model.js";
 import {
   createUser,
@@ -10,62 +11,64 @@ import {
   unblockUserService,
   bulkUpdateUsers,
   changePassword,
-  updateMyProfile
+  updateMyProfile,
 } from "../service/user.service.js";
 
 // =============== CREATE ===============
-export const CreateUserController = async (req, res) => {
-  try {
-
-      const data = { ...req.body };
-     /* ================= thumbnail handle ================= */
-
-    if (req.file) {
-      // multer diskStorage already unique filename generate karega
-      data.Qrthumbnail = req.file.filename;
-    }
-    const user = await createUser(data);
-    return res.status(201).json(user);
-  } catch (error) {
-    return res.status(500).json({ error: error.message });
-  }
-};
-
-// =============== LIST WITH PAGINATION ===============
-// export const GetUserController = async (req, res) => {
+// export const CreateUserController = async (req, res) => {
 //   try {
-//     const users = await getUser(req.query);
-//     const total = await User.countDocuments({}); // or use same filter if needed
+//     const data = { ...req.body };
 
-//     return res.status(200).json({
-//       success: true,
-//       message: "Users retrieved successfully",
-//       users,
-//       pagination: {
-//         page: parseInt(req.query.page) || 1,
-//         limit: parseInt(req.query.limit) || 10,
-//         total,
-//         pages: Math.ceil(total / (parseInt(req.query.limit) || 10)),
-//       },
-//     });
+//     if (req.file) {
+//       data.Qrthumbnail = req.file.filename;
+//     }
+
+//     const user = await createUser(data);
+//     return res.status(201).json(user);
 //   } catch (error) {
 //     return res.status(500).json({ error: error.message });
 //   }
 // };
 
+export const CreateUserController = async (req, res) => {
+  try {
+    const data = { ...req.body };
+
+    if (req.file) {
+      data.Qrthumbnail = req.file.filename;
+    }
+
+    const user = await createUser(data);
+    return res.status(201).json(user);
+  } catch (error) {
+    // unique index violation ka case
+    if (error.code === 11000) {
+      const field = Object.keys(error.keyPattern || {})[0];
+      const msg =
+        field === "email"
+          ? "Email is already registered"
+          : field === "deviceId"
+          ? "This device is already registered with another account"
+          : "Duplicate value";
+      return res.status(400).json({ error: msg });
+    }
+
+    return res.status(400).json({ error: error.message });
+  }
+};
+
+
+// =============== LIST WITH PAGINATION ===============
 export const GetUserController = async (req, res) => {
   try {
-    // build same filter as getUser for total count
     const filter = { isSuperAdmin: false };
 
     if (req.query.userName) {
       filter.userName = { $regex: req.query.userName, $options: "i" };
     }
-
     if (req.query.name) {
       filter.name = { $regex: req.query.name, $options: "i" };
     }
-
     if (req.query.email) {
       filter.email = { $regex: req.query.email, $options: "i" };
     }
@@ -73,10 +76,7 @@ export const GetUserController = async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
 
-    // data for current page
     const users = await getUser(req.query);
-
-    // total items with same filter (no super admin)
     const total = await User.countDocuments(filter);
 
     return res.status(200).json({
@@ -107,9 +107,36 @@ export const GetUserControllerByid = async (req, res) => {
 };
 
 // =============== UPDATE (ADMIN ONLY) ===============
+// export const updateUserController = async (req, res) => {
+//   try {
+//     const adminUser = req.user;
+
+//     if (!adminUser || !adminUser.isSuperAdmin) {
+//       return res.status(403).json({
+//         error: "Admin access required",
+//       });
+//     }
+
+//     const updatedUser = await updateUser(req.params.id, req.body, adminUser);
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "User updated successfully",
+//       data: updatedUser,
+//     });
+//   } catch (error) {
+//     console.error("Update user error:", error);
+//     return res.status(500).json({
+//       error: error.message || "Update failed",
+//     });
+//   }
+// };
+
+
 export const updateUserController = async (req, res) => {
   try {
-    const adminUser = req.user; // set by protect middleware
+    const adminUser = req.user;
+    console.log("[CTRL updateUser] req.user:", adminUser && adminUser._id, "isSuperAdmin:", adminUser && adminUser.isSuperAdmin);
 
     if (!adminUser || !adminUser.isSuperAdmin) {
       return res.status(403).json({
@@ -133,19 +160,14 @@ export const updateUserController = async (req, res) => {
 };
 
 
-
 // =============== UPDATE MY PROFILE (SUPER ADMIN SELF ONLY) ===============
 export const updateMyProfileController = async (req, res) => {
   try {
-    const authUser = req.user; // from protect
+    const authUser = req.user;
 
     if (!authUser) {
       return res.status(401).json({ error: "Not authenticated" });
     }
-
-    console.log("updateMyProfileController req.params.id:", req.params.id);
-    console.log("updateMyProfileController files:", req.files); // array with upload.array
-    console.log("updateMyProfileController body:", req.body);
 
     const updatedUser = await updateMyProfile(req.params.id, req);
 
@@ -162,20 +184,16 @@ export const updateMyProfileController = async (req, res) => {
   }
 };
 
-
-
-
-
 // =============== Change Password ===============
 export const changeMyPasswordController = async (req, res) => {
   try {
-    const authUser = req.user; // still validated by protect
+    const authUser = req.user;
 
     if (!authUser) {
       return res.status(401).json({ error: "Not authenticated" });
     }
 
-    const { id } = req.params;       // <-- take id from URL
+    const { id } = req.params;
     const { pin } = req.body;
 
     if (!pin || typeof pin !== "string") {
@@ -184,7 +202,7 @@ export const changeMyPasswordController = async (req, res) => {
         .json({ error: "New password (pin) is required" });
     }
 
-    await changePassword(id, pin);    // <-- use URL id
+    await changePassword(id, pin);
 
     return res.status(200).json({
       success: true,
@@ -197,8 +215,6 @@ export const changeMyPasswordController = async (req, res) => {
       .json({ error: err.message || "Password update failed" });
   }
 };
-
-
 
 // =============== BULK UPDATE (ADMIN ONLY) ===============
 export const bulkUpdateUsersController = async (req, res) => {
@@ -237,22 +253,41 @@ export const bulkUpdateUsersController = async (req, res) => {
 export const extendSubscriptionController = async (req, res) => {
   try {
     const adminUser = req.user;
+
     if (!adminUser || !adminUser.isSuperAdmin) {
       return res.status(403).json({ error: "Admin access required" });
     }
 
-    const { id } = req.params;
-    const { expiresAt, subscription_plan = "TRIAL" } = req.body;
+    const id = req.params.id;
+    const body = req.body || {};
+
+    const expiresAt = body.expiresAt;
+    const subscription_plan = body.subscription_plan || "TRIAL";
+    const notes = body.notes || "";
+
+    if (!expiresAt) {
+      return res.status(400).json({ error: "expiresAt is required" });
+    }
+
+    const expiresDate = new Date(expiresAt);
+    if (isNaN(expiresDate.getTime())) {
+      return res
+        .status(400)
+        .json({ error: "expiresAt must be a valid date" });
+    }
 
     const updateData = {
       subscription: {
         status: "ACTIVE",
         subscription_plan,
-        expiresAt: new Date(expiresAt),
+        expiresAt: expiresDate,
       },
       subscriptionLog: {
         accessType: subscription_plan,
-        notes: `Extended by ${adminUser.name || adminUser.userName}`,
+        notes:
+          notes ||
+          "Extended by " +
+            (adminUser.name || adminUser.userName || "System"),
         action: "EXTENDED",
       },
     };
@@ -266,7 +301,7 @@ export const extendSubscriptionController = async (req, res) => {
     });
   } catch (error) {
     console.error("Extend subscription error:", error);
-    return res.status(500).json({ error: error.message });
+    return res.status(500).json({ error: error.message || "Server error" });
   }
 };
 

@@ -6,14 +6,14 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
-    userName: {
-      type: String,
-      // required: [true, "Username is required"],
-      unique: true,
-      lowercase: true,
-      trim: true,
-      minlength: [3, "Username must be at least 3 characters"],
-    },
+    // userName: {
+    //   type: String,
+    //   required: [true, "Username is required"],
+    //   unique: true,
+    //   lowercase: true,
+    //   trim: true,
+    //   minlength: [3, "Username must be at least 3 characters"],
+    // },
     name: {
       type: String,
       trim: true,
@@ -29,7 +29,13 @@ const userSchema = new mongoose.Schema(
       required: [true, "PIN is required"],
       // no length validation to support hashed values
     },
-    deviceId: String,
+    deviceId: {
+      type: String,
+      index: true,
+      sparse: true,
+      unique: true, 
+    },
+    
     email: {
       type: String,
       required: [true, "Email is required"],
@@ -174,6 +180,7 @@ userSchema.index({
   "subscription.status": 1,
   "subscription.subscription_plan": 1,
 });
+userSchema.index({ deviceId: 1 }, { unique: true, sparse: true });
 
 // Helper virtual (for UI only – does NOT change status)
 userSchema.virtual("daysRemaining").get(function () {

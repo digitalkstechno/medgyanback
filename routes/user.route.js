@@ -1,3 +1,4 @@
+// routes/user.routes.js
 import express from "express";
 import {
   CreateUserController,
@@ -25,15 +26,17 @@ router.post("/", CreateUserController);
 router.get("/", queryOptions(User), GetUserController);
 router.get("/:id", GetUserControllerByid);
 
-// Admin-protected user updates
+// Auth-protected (need token)
 router.put("/changepassword/:id", protect, changeMyPasswordController);
+
+// Admin-protected user updates
 router.put("/:id", protect, updateUserController);
 
 // Profile update with QR upload (multiple images allowed)
 router.put(
   "/profile/:id",
   protect,
-  upload.array("Qrthumbnail", 10), // same field name as FormData.append('Qrthumbnail', file)
+  upload.array("Qrthumbnail", 10),
   updateMyProfileController
 );
 

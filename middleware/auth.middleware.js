@@ -1,4 +1,3 @@
-import User from "../models/user.model.js";
 // import jwt from "jsonwebtoken";
 
 // export const protect = async (req, res, next) => {
@@ -43,40 +42,102 @@ import User from "../models/user.model.js";
 import jwt from "jsonwebtoken";
 // import User from "../models/User.js";
 
+// export const protect = async (req, res, next) => {
+//   try {
+//     const auth = req.headers.authorization || "";
+//     const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
+
+//     if (!token) {
+//       return res.status(401).json({ success: false, message: "No token provided" });
+//     }
+
+//     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+//     const user = await User.findById(decoded.id).select("isBlocked device isSuperAdmin");
+
+//     if (!user || user.isBlocked) {
+//       return res.status(401).json({ success: false, message: "Unauthorized" });
+//     }
+
+//     if (!user.isSuperAdmin) {
+//       // device lock must exist
+//       if (!user.device || !user.device.token) {
+//         return res.status(401).json({ success: false, message: "Device not authorized. Contact admin." });
+//       }
+
+//       // token must match the saved one
+//       if (user.device.token !== token) {
+//         return res.status(401).json({
+//           success: false,
+//           message: "Session invalid or you logged in from another device.",
+//         });
+//       }
+//     }
+
+//     req.user = { id: user._id, isSuperAdmin: user.isSuperAdmin };
+//     next();
+//   } catch (err) {
+//     return res.status(401).json({ success: false, message: "Invalid or expired token" });
+//   }
+// };
+// middleware/auth.middleware.js
+import User from "../models/user.model.js";
+
 export const protect = async (req, res, next) => {
   try {
     const auth = req.headers.authorization || "";
     const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
 
     if (!token) {
-      return res.status(401).json({ success: false, message: "No token provided" });
+      return res
+        .status(401)
+        .json({ success: false, message: "No token provided" });
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(decoded.id).select("isBlocked device isSuperAdmin");
+
+    // yahan full user lo (kam se kam name, userName, email + flags)
+    const user = await User.findById(decoded.id).select(
+      "isBlocked device isSuperAdmin name userName email"
+    );
 
     if (!user || user.isBlocked) {
-      return res.status(401).json({ success: false, message: "Unauthorized" });
+      return res
+        .status(401)
+        .json({ success: false, message: "Unauthorized" });
     }
 
     if (!user.isSuperAdmin) {
-      // device lock must exist
       if (!user.device || !user.device.token) {
-        return res.status(401).json({ success: false, message: "Device not authorized. Contact admin." });
+        return res.status(401).json({
+          success: false,
+          message: "Device not authorized. Contact admin.",
+        });
       }
 
-      // token must match the saved one
       if (user.device.token !== token) {
         return res.status(401).json({
           success: false,
-          message: "Session invalid or you logged in from another device.",
+          message:
+            "Session invalid or you logged in from another device.",
         });
       }
     }
 
-    req.user = { id: user._id, isSuperAdmin: user.isSuperAdmin };
+    // yahan POORA user object set kar
+    req.user = user;
+
+    console.log(
+      "[PROTECT] auth user:",
+      user._id.toString(),
+      "isSuperAdmin:",
+      user.isSuperAdmin
+    );
+
     next();
   } catch (err) {
-    return res.status(401).json({ success: false, message: "Invalid or expired token" });
+    console.error("[PROTECT] error:", err.message);
+    return res
+      .status(401)
+      .json({ success: false, message: "Invalid or expired token" });
   }
 };
